@@ -7,12 +7,14 @@ import queue
 import sys
 import threading
 import time
+import webbrowser
 import tkinter as tk
 from tkinter import ttk, filedialog
 import dialogs as messagebox
 
 from client import Session, HOST, local_vscode, format_size, report_text, save_report, resource
 from build_info import VERSION, LANGUAGE
+from updater import check_release
 
 BG, CARD, INK, MUTED, BLUE, GREEN = '#f3f6fb', '#ffffff', '#182940', '#60748b', '#235dd4', '#168265'
 
@@ -28,6 +30,8 @@ class App:
         self.report_path = None
         self.rows = {}
         self.selected = set()
+        self.checking_updates = False
+        self.available_update = None
         self.local = local_vscode()
         self.user = tk.StringVar()
         self.password = tk.StringVar()
@@ -52,6 +56,8 @@ class App:
         header.grid(row=0, column=0, sticky='ew')
         ttk.Label(header, text='CSE 空间助手', style='Title.TLabel').pack(side='left')
         ttk.Button(header, text='使用说明', command=self.help).pack(side='right')
+        self.update_button = ttk.Button(header, text='检查更新', command=lambda: self.check_updates(manual=True))
+        self.update_button.pack(side='right', padx=(0, 8))
         ttk.Label(shell, text='扫描服务器占用，清理旧开发组件，让作业有地方保存。', style='Muted.TLabel').grid(row=1, column=0, sticky='w', pady=(3, 18))
 
         login = ttk.Frame(shell, style='Card.TFrame', padding=16)
@@ -117,7 +123,13 @@ class App:
         self.spinner.grid(row=8, column=0, sticky='ew', pady=(13, 7))
         self.spinner.grid_remove()
         ttk.Label(shell, textvariable=self.status, style='Muted.TLabel', wraplength=1000).grid(row=9, column=0, sticky='w')
+        update_bar = ttk.Frame(shell, style='Page.TFrame')
+        update_bar.grid(row=10, column=0, sticky='ew', pady=(8, 0))
+        self.update_status = tk.StringVar(value='版本 '+VERSION+' · 启动时自动检查更新')
+        ttk.Label(update_bar, textvariable=self.update_status, style='Muted.TLabel', wraplength=800).pack(side='left')
+        self.download_button = ttk.Button(update_bar, text='打开更新页面', command=self.open_update)
         root.after(100, self.poll)
+        root.after(1200, self.check_updates)
         self.user_entry.focus_set()
         if initial_report:
             self.render(initial_report, offline=True)
@@ -223,6 +235,9 @@ class App:
         try:
             while True:
                 kind, result, path = self.events.get_nowait()
+                if kind in {'update', 'update_error'}:
+                    self.finish_update(kind, result, manual=path)
+                    continue
                 self.busy = False
                 self.spinner.stop()
                 self.spinner.grid_remove()
@@ -238,6 +253,41 @@ class App:
         except queue.Empty:
             pass
         self.root.after(100, self.poll)
+
+    def check_updates(self, manual=False):
+        if self.checking_updates:
+            return
+        self.checking_updates = True
+        self.update_button.configure(state='disabled')
+        self.update_status.set('版本 '+VERSION+' · 正在检查更新…')
+        def worker():
+            try:
+                self.events.put(('update', check_release(), manual))
+            except Exception as exc:
+                self.events.put(('update_error', str(exc), manual))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def finish_update(self, kind, result, manual=False):
+        self.checking_updates = False
+        self.update_button.configure(state='normal')
+        if kind == 'update_error':
+            self.update_status.set('版本 '+VERSION+' · 更新检查未完成，可稍后重试')
+            if manual:
+                messagebox.showerror('检查更新', result, parent=self.root)
+            return
+        self.available_update = result if result['available'] else None
+        if self.available_update:
+            self.update_status.set('发现新版 '+result['version']+' · 当前版本 '+VERSION)
+            self.download_button.pack(side='right')
+        else:
+            self.download_button.pack_forget()
+            self.update_status.set('版本 '+VERSION+' · 未发现更新')
+            if manual:
+                messagebox.showinfo('检查更新', '当前没有比本机更新的正式版本。', parent=self.root)
+
+    def open_update(self):
+        if self.available_update:
+            webbrowser.open(self.available_update['page_url'])
 
     def render(self, report, offline=False):
         self.report = report
