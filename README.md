@@ -1,0 +1,73 @@
+# CSE 空间助手
+
+[English](README.en.md) · [下载中英文版本](https://github.com/skyXIANGTIAN13152/cse-space-helper/releases/latest)
+
+给 UNSW CSE 账户使用的独立 Windows 小工具，与 UNSW 没有官方隶属关系。输入自己的 zID 和学校密码，连接并扫描，查看清单后清理选中项目。
+
+下载 `CSE-Space-Helper-zh.exe` 为中文版，`CSE-Space-Helper-en.exe` 为全英文版。支持 Windows 10/11 x64，无需安装 Python。账号必须具有 CSE SSH 登录权限。
+
+首次使用新电脑，需要先在系统终端中运行 `ssh 你的zID@login.cse.unsw.edu.au`，核对服务器身份并完成一次登录，让系统保存验证记录。之后即可直接在应用中扫描和清理。程序不自动接受未知或已改变的服务器身份。
+
+## 日常使用
+
+1. 结束学习后，关闭所有电脑上连接这个 CSE 账户的 VS Code 窗口。
+2. 双击桌面的 **CSE 空间助手**。
+3. 输入自己的 zID 和学校密码，点击 **连接并扫描**。密码仅用于当前 SSH 连接，输入框随后清空，不写入配置、日志或程序文件。
+4. 查看占用和清理依据。默认勾选符合规则的项目；点击某行可取消勾选。
+5. 点击 **清理选中项目**。工具会再次核对状态，清理后重新获取配额并测试是否能保存文件。
+6. 关闭软件即断开连接。它没有自启动、后台定时任务或持续监控。
+
+如果显示「没有符合规则的可清理项目」，表示按当前规则无需清理，或有关内容被保护。原因可在「检查详情」查看。
+
+## 会清理什么
+
+| 内容 | 判断依据 |
+|---|---|
+| 旧 VS Code 远程程序 | 读取实际版本和提交编号，保留本机匹配版、最新完整版本和检测到的在用版本 |
+| 旧启动程序 | 有完整替代版本，且不匹配本机或保留版本 |
+| 过期扩展 | 必须被 VS Code 的 `.obsolete` 明确标记，且没有当前/其他配置选用；远程 VS Code 运行时跳过扩展清理 |
+| 扩展安装包缓存 | 在允许的缓存目录内，至少一小时没有改动 |
+| 旧日志 | 至少七天没有改动；保留近期有文件变动的日志目录 |
+
+仅允许删除 `~/.vscode-server` 下经过核对的上述项目。课程代码、Downloads、个人文件、SSH 配置、扩展设置和 `User/History` 编辑历史均不在清理范围。清理会直接删除选中内容；这些开发组件和缓存可以重新下载，但日志不会恢复。
+
+每次删除前重新检查选择、路径、文件状态和进程；扫描之后发生变化的项目会跳过。遇到符号链接入口、异常权限、网络文件系统占用文件、安装锁或无法辨认的版本/配置，保留内容并给出提示。不结束用户进程。
+
+## 边界与异常
+
+- CSE 主目录可能由多台机器共享。程序能检查当前登录节点的进程和共享目录中的锁，但不能枚举其他机器的所有进程，因此清理前应关闭其他机器上连接该账户的 VS Code。
+- 若未来 VS Code 更改目录或配置格式，程序会保守地保留无法确认的内容。
+- 配额来自每次扫描时服务器返回的数字，不固定写死为 2304 MB。显示精度以服务器为准，列表中的释放大小是估计值。
+- 如果个人作业或其他文件占满配额，程序只列出占用，不会自行删除它们。
+- 网络中断可能发生在清理一部分项目之后；重连并再次扫描即可核对实际状态，不会自动重复清理旧清单。
+- 本工具不修复网络、密码或所有 VS Code 连接错误。清除旧组件、恢复足够空间后，VS Code 下次连接会自行安装所需组件。
+- 主机身份验证使用本机 `~/.ssh/known_hosts`。未知或变更的服务器身份会阻止连接，不会自动接受未知密钥。
+
+每次操作的报告保存在 `%LOCALAPPDATA%\CSESpaceHelper\reports`；也可点击「导出报告」选择位置。报告包含空间、路径和清理结果，不包含密码。
+
+## GitHub 调研与选择（2026-09-28）
+
+在实现之前检查了以下项目的说明和源代码；本工具为独立实现，没有直接执行网上下载的清理脚本。
+
+- [XDflight / clean_vscode-server.sh](https://gist.github.com/XDflight/5f3509eb84fc282b88059c909036f5bc)：与高校小配额场景很接近，但源代码会结束匹配 `.vscode-server` 的进程、清空整个 `~/.cache`，并通过扩展目录排序选择保留项。
+- [TioSisai / remote-ide-server-cleanup](https://github.com/TioSisai/remote-ide-server-cleanup)：有预览模式，但主要按修改时间保留版本；读取的代码中，版本目录匹配规则也不能直接识别本账户的 `Stable-<commit>` 名称。
+- [akkuman / cleanup-vscode-ext.sh](https://gist.github.com/akkuman/c1d9577fab2a8701142887de5dc04270)：关注旧扩展，没有完整覆盖 CSE 配额和远程服务器版本管理。
+
+本工具针对 CSE 上使用的目录结构，提供中英文界面、配置引用检查、扫描后复核、当前版本识别和配额验证。
+
+参考：[CSE 配额说明](https://taggi.cse.unsw.edu.au/FAQ/Disk_Quota/)、[VS Code Remote SSH](https://code.visualstudio.com/docs/remote/ssh)、[Microsoft 服务器路径实现](https://github.com/microsoft/vscode/blob/main/cli/src/tunnels/paths.rs)、[Paramiko SSH 客户端文档](https://docs.paramiko.org/en/stable/api/client.html)。
+
+## 开发与打包
+
+打包使用 Python 3.14；远程只需 Python 标准库（Python 3.9+）。Windows 可执行文件已经包含 Python 和 SSH 依赖。
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-lock.txt
+.\.venv\Scripts\python.exe -m unittest discover -v
+.\build.ps1 -Language both
+```
+
+安全测试包括：保留当前/最新/在用版本，配置引用保护，配置损坏，扫描后变更，路径穿越，符号链接，NFS 占用文件，文件锁，未知进程状态，近期文件保护和重复清理。Linux 专用行为还在 CSE 的 `/tmp` 隔离测试目录中验证；测试中的课程文件是临时构造的样本。
+
+两种语言使用同一份清理逻辑。英文文本在 `translations/en.json` 中，打包时生成英文源码，遗漏翻译会使打包失败。`dist` 存放两个可执行文件。实机报告、验证记录、虚拟环境和打包临时文件均不进入仓库或发行包。
