@@ -13,7 +13,9 @@ A, B, C = 'a'*40, 'b'*40, 'c'*40
 class SafetyTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='cse-helper-test-')
-        self.home = Path(self.temp.name)
+        # Windows runners may return an 8.3 alias (RUNNER~1) for the temp path.
+        # Match the canonical home used by Engine when constructing process fixtures.
+        self.home = Path(self.temp.name).resolve()
         self.root = self.home/'.vscode-server'
         (self.root/'cli/servers').mkdir(parents=True)
         (self.root/'extensions').mkdir()
