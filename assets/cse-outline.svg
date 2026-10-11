@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="none">
+  <title>CSE Space Helper — outline terminal shield</title>
+  <defs>
+    <linearGradient id="outline" x1="40" y1="170" x2="218" y2="57" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F4AB4C"/>
+      <stop offset=".48" stop-color="#F89B53"/>
+      <stop offset="1" stop-color="#F17861"/>
+    </linearGradient>
+  </defs>
+  <g stroke="url(#outline)" stroke-width="11" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M165 39 128 26 40 57v66c0 49 34 84 88 109 54-25 88-60 88-109v-18"/>
+    <path d="m78 95 33 29-33 29m53 0h37"/>
+    <path d="m206 27 8 24 24 8-24 8-8 24-8-24-24-8 24-8Z" stroke-width="8"/>
+  </g>
+</svg>
