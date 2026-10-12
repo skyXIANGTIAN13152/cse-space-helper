@@ -13,6 +13,7 @@ def release(tag='v1.2.0'):
     return {'tag_name': tag, 'draft': False, 'prerelease': False,
             'html_url': updater.RELEASE_ROOT+'tag/'+tag,
             'assets': [{'name': 'CSE-Space-Helper-'+lang+'.exe', 'size': 20000,
+                        'digest': 'sha256:'+'a'*64,
                         'state': 'uploaded', 'browser_download_url': updater.RELEASE_ROOT+
                         'download/'+tag+'/CSE-Space-Helper-'+lang+'.exe'} for lang in ['zh', 'en']]}
 

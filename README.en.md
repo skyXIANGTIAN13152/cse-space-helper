@@ -21,13 +21,15 @@ An independent Windows utility for UNSW CSE accounts. Check your home-directory 
 
 The password is used for the current SSH connection only, cleared from the input box, and never written to reports, configuration, or program files. Reports are saved locally under `%LOCALAPPDATA%\CSESpaceHelper\reports`; they contain account names, paths, sizes, and results. **Export report** saves a readable copy to a location you choose.
 
-## Update checks (since 1.1.0)
+## Update checks and installation (since 1.2.0)
 
-The app checks this public GitHub repository for a stable release in the background at each launch. **Check for updates** also runs a manual check. When a newer release is available, **Open update page** opens its GitHub page so you can download your language edition.
+The app checks this public GitHub repository for a stable release in the background at each launch and every six hours while open. **Check for updates** also runs a manual check. When a newer release is available, it asks whether to update now. Confirm to download your language edition, display progress, verify the file, replace the executable in its original location, and restart. Existing shortcuts continue to work; sign in to CSE again after restarting.
 
-It does not automatically download, install, close the app, or interrupt cleanup. No update service remains after you exit. Checks do not require GitHub sign-in and send no CSE account names, passwords, file paths, or reports. Network failures and rate limits do not block scanning. Only verified stable release links with an uploaded asset for your language are accepted; older versions and prereleases are ignored.
+Decline to keep using the current version, or select **Update now** later. Automatic prompts for the same version appear only once per session. Prompts wait for active scanning or cleanup to finish. Downloads can be cancelled; cancellation or failed verification leaves the current program intact. The updater temporarily backs up the current executable and restores it if the new version cannot start. The program folder must be writable; close other running copies of the same executable first.
 
-The initial 1.0.0 release predates this feature and needs one manual download of 1.1.0.
+Checks do not require GitHub sign-in and send no CSE account names, passwords, file paths, or reports. Files are downloaded only after confirmation and checked against the release asset size and GitHub SHA-256 digest. Network failures and rate limits do not block scanning. Only verified stable release links with an uploaded asset for your language are accepted; older versions and prereleases are ignored. No periodic update service remains after exit; a temporary helper completes an already confirmed replacement.
+
+Versions 1.0.0 and 1.1.0 need one manual download of 1.2.0 to obtain automatic installation. Automatic replacement is available in packaged Windows editions only, not when running Python source.
 
 ## Cleanup scope
 

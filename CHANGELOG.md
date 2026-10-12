@@ -1,5 +1,13 @@
 # Releases
 
+## 1.2.0
+
+- Ask before updating when a newer stable release is found at startup or during a six-hour background check.
+- Download the matching language edition with progress and cancellation; verify its size and GitHub SHA-256 digest.
+- Replace the existing executable in place and restart through a temporary helper, preserving shortcuts.
+- Defer prompts until scanning or cleanup finishes; restore the previous executable if installation or startup fails.
+- Keep the warm outline interface and transparent amber icon in both language editions.
+
 ## 1.1.0
 
 - Check the public GitHub release at startup without blocking scans or cleanup.

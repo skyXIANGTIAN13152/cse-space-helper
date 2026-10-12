@@ -7,14 +7,14 @@ import queue
 import sys
 import threading
 import time
-import webbrowser
 import tkinter as tk
 from tkinter import ttk, filedialog
 import dialogs as messagebox
 
 from client import Session, HOST, local_vscode, format_size, report_text, save_report, resource
 from build_info import VERSION, LANGUAGE
-from updater import check_release
+from updater import (check_release, download_update, discard_download, launch_update, run_update_helper,
+                     confirm_update_startup, UpdateCancelled)
 
 # A quiet, outlined workspace: the terminal shield is the only decorative mark.
 BG, CARD, INK, MUTED = '#211E1C', '#2B2521', '#F8F0E7', '#C1B3A6'
@@ -36,6 +36,12 @@ class App:
         self.selected = set()
         self.checking_updates = False
         self.available_update = None
+        self.updating = False
+        self.update_cancel = threading.Event()
+        self.pending_update_prompt = False
+        self.prompted_update_version = None
+        self.closing = False
+        self.close_when_download_finishes = False
         self.local = local_vscode()
         self.user = tk.StringVar()
         self.password = tk.StringVar()
@@ -153,10 +159,13 @@ class App:
         self.update_status = tk.StringVar(value='版本 '+VERSION+' · 启动时自动检查更新')
         self.update_label = ttk.Label(update_bar, textvariable=self.update_status, style='Fine.TLabel', wraplength=px(650))
         self.update_label.pack(side='left')
-        self.wrap_targets.append((self.update_label, px(215)))
-        self.download_button = ttk.Button(update_bar, text='打开更新页面', command=self.open_update)
+        self.wrap_targets.append((self.update_label, px(320)))
+        self.download_button = ttk.Button(update_bar, text='立即更新', command=self.open_update)
+        self.cancel_update_button = ttk.Button(update_bar, text='取消下载', command=self.cancel_update)
+        self.update_progress = ttk.Progressbar(update_bar, style='Quota.Horizontal.TProgressbar', length=px(140))
         root.after(100, self.poll)
         root.after(1200, self.check_updates)
+        root.after(6*60*60*1000, self.periodic_updates)
         self.user_entry.focus_set()
         if initial_report:
             self.render(initial_report, offline=True)
@@ -290,7 +299,7 @@ class App:
         return tree
 
     def start(self, operation, callback):
-        if self.busy:
+        if self.busy or self.updating:
             return
         self.busy, self.operation = True, operation
         self.spinner.grid()
@@ -311,7 +320,7 @@ class App:
         threading.Thread(target=worker, daemon=True).start()
 
     def scan(self):
-        if self.busy:
+        if self.busy or self.updating:
             return
         username, password = self.user.get().strip(), self.password.get()
         self.password.set('')
@@ -323,21 +332,22 @@ class App:
         self.start('scan', perform)
 
     def clean(self):
-        if self.busy or not self.session.connected or not self.selected:
+        if self.busy or self.updating or not self.session.connected or not self.selected:
             return
         items = [{'path': self.rows[key]['path'], 'stamp': self.rows[key]['stamp']} for key in self.rows if key in self.selected]
         # The scan list is the review screen; this button executes that exact selection.
         self.start('clean', lambda: self.session.run('clean', items=items, local=self.local))
 
     def set_buttons(self):
-        self.scan_button.configure(state='disabled' if self.busy else 'normal',
+        blocked = self.busy or self.updating
+        self.scan_button.configure(state='disabled' if blocked else 'normal',
                                    text='重新扫描' if self.session.connected else '连接并扫描')
-        self.user_entry.configure(state='disabled' if self.busy or self.session.connected else 'normal')
-        self.pass_entry.configure(state='disabled' if self.busy or self.session.connected else 'normal')
-        self.disconnect_button.configure(state='normal' if self.session.connected and not self.busy else 'disabled')
-        self.clean_button.configure(state='normal' if self.selected and self.session.connected and not self.busy else 'disabled')
-        self.select_button.configure(state='normal' if self.rows and not self.busy else 'disabled')
-        self.export_button.configure(state='normal' if self.report and not self.busy else 'disabled')
+        self.user_entry.configure(state='disabled' if blocked or self.session.connected else 'normal')
+        self.pass_entry.configure(state='disabled' if blocked or self.session.connected else 'normal')
+        self.disconnect_button.configure(state='normal' if self.session.connected and not blocked else 'disabled')
+        self.clean_button.configure(state='normal' if self.selected and self.session.connected and not blocked else 'disabled')
+        self.select_button.configure(state='normal' if self.rows and not blocked else 'disabled')
+        self.export_button.configure(state='normal' if self.report and not blocked else 'disabled')
 
     def poll(self):
         try:
@@ -345,6 +355,11 @@ class App:
                 kind, result, path = self.events.get_nowait()
                 if kind in {'update', 'update_error'}:
                     self.finish_update(kind, result, manual=path)
+                    continue
+                if kind.startswith('download_'):
+                    self.finish_download(kind, result)
+                    if self.closing:
+                        return
                     continue
                 self.busy = False
                 self.spinner.stop()
@@ -360,13 +375,21 @@ class App:
                 self.set_buttons()
         except queue.Empty:
             pass
+        if self.pending_update_prompt and not self.busy and not self.updating:
+            self.pending_update_prompt = False
+            self.open_update()
         self.root.after(100, self.poll)
 
+    def periodic_updates(self):
+        self.check_updates()
+        self.root.after(6*60*60*1000, self.periodic_updates)
+
     def check_updates(self, manual=False):
-        if self.checking_updates:
+        if self.checking_updates or self.updating:
             return
         self.checking_updates = True
         self.update_button.configure(state='disabled')
+        self.download_button.configure(state='disabled')
         self.update_status.set('版本 '+VERSION+' · 正在检查更新…')
         def worker():
             try:
@@ -378,6 +401,7 @@ class App:
     def finish_update(self, kind, result, manual=False):
         self.checking_updates = False
         self.update_button.configure(state='normal')
+        self.download_button.configure(state='normal')
         if kind == 'update_error':
             self.update_status.set('版本 '+VERSION+' · 更新检查未完成，可稍后重试')
             if manual:
@@ -387,6 +411,8 @@ class App:
         if self.available_update:
             self.update_status.set('发现新版 '+result['version']+' · 当前版本 '+VERSION)
             self.download_button.pack(side='right')
+            if manual or self.prompted_update_version != result['version']:
+                self.pending_update_prompt = True
         else:
             self.download_button.pack_forget()
             self.update_status.set('版本 '+VERSION+' · 未发现更新')
@@ -394,8 +420,106 @@ class App:
                 messagebox.showinfo('检查更新', '当前没有比本机更新的正式版本。', parent=self.root)
 
     def open_update(self):
-        if self.available_update:
-            webbrowser.open(self.available_update['page_url'])
+        if not self.available_update or self.updating or self.checking_updates:
+            return
+        if self.busy:
+            self.pending_update_prompt = True
+            return
+        self.pending_update_prompt = False
+        info = dict(self.available_update)
+        self.prompted_update_version = info['version']
+        if not getattr(sys, 'frozen', False) or sys.platform != 'win32':
+            messagebox.showinfo('软件更新', '自动安装更新仅支持打包后的 Windows 程序。请使用正式发行版。', parent=self.root)
+            return
+        if not messagebox.askyesno('发现新版本',
+                '发现新版 '+info['version']+'，当前版本 '+VERSION+'。\n\n'
+                '是否现在更新？确认后会自动下载、替换旧程序并重新启动。\n'
+                '下载大小：'+format_size(info['size'])+'。下载期间可取消。\n'
+                '更新前会保留旧程序备份。重新启动后需要重新登录 CSE。', parent=self.root,
+                accept_text='立即更新', cancel_text='稍后'):
+            self.update_status.set('新版 '+info['version']+' 可用 · 可以稍后点击「立即更新」')
+            return
+        self.updating = True
+        self.update_cancel.clear()
+        self.update_button.configure(state='disabled')
+        self.download_button.pack_forget()
+        self.cancel_update_button.configure(state='normal')
+        self.cancel_update_button.pack(side='right')
+        self.update_progress.configure(value=0)
+        self.update_progress.pack(side='right', padx=(self.px(8), self.px(8)))
+        self.update_status.set('正在下载新版 '+info['version']+'…')
+        self.set_buttons()
+        def worker():
+            try:
+                path = download_update(info, progress=lambda received, total:
+                    self.events.put(('download_progress', (received, total), None)), cancel_event=self.update_cancel)
+                self.events.put(('download_complete', (path, info), None))
+            except UpdateCancelled:
+                self.events.put(('download_cancelled', None, None))
+            except Exception as exc:
+                self.events.put(('download_error', str(exc), None))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def cancel_update(self):
+        self.update_cancel.set()
+        self.cancel_update_button.configure(state='disabled')
+        self.update_status.set('正在取消下载…')
+
+    def finish_download(self, kind, result):
+        if kind == 'download_progress':
+            received, total = result
+            self.update_progress.configure(value=received/total*100 if total else 0)
+            if not self.update_cancel.is_set():
+                self.update_status.set('正在下载更新：'+format_size(received)+' / '+format_size(total))
+            return
+        if kind == 'download_complete':
+            path, info = result
+            if self.update_cancel.is_set():
+                try:
+                    discard_download(path)
+                except OSError:
+                    pass
+                kind = 'download_cancelled'
+            else:
+                try:
+                    self.update_status.set('下载已验证，正在替换程序并重新启动…')
+                    self.root.update_idletasks()
+                    launch_update(path, info)
+                except Exception as exc:
+                    try:
+                        discard_download(path)
+                    except OSError:
+                        pass
+                    kind, result = 'download_error', str(exc)
+                else:
+                    self.closing = True
+                    self.password.set('')
+                    self.session.close()
+                    self.root.destroy()
+                    return
+        self.updating = False
+        if self.close_when_download_finishes:
+            self.close()
+            return
+        self.update_progress.pack_forget()
+        self.cancel_update_button.pack_forget()
+        self.download_button.pack(side='right')
+        self.update_button.configure(state='normal')
+        self.set_buttons()
+        if kind == 'download_cancelled':
+            self.update_status.set('更新下载已取消 · 当前程序仍可继续使用')
+        else:
+            self.update_status.set('更新未完成 · 可以点击「立即更新」重试')
+            messagebox.showerror('更新未完成', result, parent=self.root)
+
+    def update_started(self, manifest_path):
+        try:
+            result = confirm_update_startup(manifest_path)
+            self.update_status.set(result['message'])
+            if result['status'] != 'updated':
+                messagebox.showerror('更新未完成', result['message'], parent=self.root)
+        except Exception as exc:
+            messagebox.showerror('更新未完成', str(exc), parent=self.root)
 
     def render(self, report, offline=False):
         self.report = report
@@ -449,13 +573,13 @@ class App:
 
     def toggle(self, event):
         key = self.tree.identify_row(event.y)
-        if key in self.rows and not self.busy:
+        if key in self.rows and not self.busy and not self.updating:
             self.selected.symmetric_difference_update({key})
             self.selection_changed()
 
     def toggle_keyboard(self, event):
         key = self.tree.focus()
-        if key in self.rows and not self.busy:
+        if key in self.rows and not self.busy and not self.updating:
             self.selected.symmetric_difference_update({key})
             self.selection_changed()
         return 'break'
@@ -476,7 +600,7 @@ class App:
         self.selection_changed()
 
     def disconnect(self):
-        if self.busy:
+        if self.busy or self.updating:
             return
         self.session.close()
         self.password.set('')
@@ -510,11 +634,20 @@ class App:
             '工具不会后台运行、定时清理或关闭你的工作进程。\n\n版本 '+VERSION, parent=self.root)
 
     def close(self):
+        if self.updating:
+            if not messagebox.askyesno('正在下载更新', '关闭将取消本次下载，保留当前程序。\n仍要关闭吗？', parent=self.root):
+                return
+            self.update_cancel.set()
+            self.close_when_download_finishes = True
+            self.cancel_update_button.configure(state='disabled')
+            self.update_status.set('正在取消下载并关闭…')
+            return
         if self.busy and self.operation == 'clean':
             if not messagebox.askyesno('清理还在进行', '现在关闭可能只完成部分清理。下次需重新扫描确认。\n仍要关闭吗？', parent=self.root):
                 return
         self.password.set('')
         self.session.close()
+        self.closing = True
         self.root.destroy()
 
 
@@ -523,7 +656,12 @@ def main():
     parser.add_argument('--open-report')
     parser.add_argument('--scan-json', action='store_true', help='Read username/password JSON from stdin; emit scan report only.')
     parser.add_argument('--clean-json', action='store_true', help='Read credentials and selected scan items from stdin; emit result.')
+    parser.add_argument('--apply-update', help=argparse.SUPPRESS)
+    parser.add_argument('--update-result', help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.apply_update:
+        run_update_helper(args.apply_update)
+        return
     if args.scan_json or args.clean_json:
         request = json.load(sys.stdin)
         session = Session()
@@ -546,7 +684,9 @@ def main():
             initial = json.loads(Path(args.open_report).read_text(encoding='utf-8'))
         except (OSError, ValueError):
             pass
-    App(root, initial)
+    app = App(root, initial)
+    if args.update_result:
+        root.after_idle(lambda: app.update_started(args.update_result))
     root.mainloop()
 
 

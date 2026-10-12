@@ -34,7 +34,7 @@ def theme_titlebar(window):
         pass
 
 
-def _show(title, message, parent=None, question=False):
+def _show(title, message, parent=None, question=False, accept_text=None, cancel_text=None):
     window = tk.Toplevel(parent)
     window.title(title)
     window.configure(bg=BG)
@@ -60,8 +60,8 @@ def _show(title, message, parent=None, question=False):
         result[0] = value
         window.destroy()
     if question:
-        ttk.Button(buttons, text='取消', command=finish).pack(side='right', padx=(round(8*scale), 0))
-    accept = ttk.Button(buttons, text='继续' if question else '确定', style='Primary.TButton', command=lambda: finish(True))
+        ttk.Button(buttons, text=cancel_text or '取消', command=finish).pack(side='right', padx=(round(8*scale), 0))
+    accept = ttk.Button(buttons, text=accept_text or ('继续' if question else '确定'), style='Primary.TButton', command=lambda: finish(True))
     accept.pack(side='right')
     window.protocol('WM_DELETE_WINDOW', finish)
     window.bind('<Escape>', lambda event: finish())
@@ -86,5 +86,5 @@ def showerror(title, message, parent=None):
     return _show(title, message, parent)
 
 
-def askyesno(title, message, parent=None):
-    return _show(title, message, parent, question=True)
+def askyesno(title, message, parent=None, accept_text=None, cancel_text=None):
+    return _show(title, message, parent, question=True, accept_text=accept_text, cancel_text=cancel_text)
