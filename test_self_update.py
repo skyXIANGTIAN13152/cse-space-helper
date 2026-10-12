@@ -170,9 +170,12 @@ class TransactionTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        self.installed = Path(self.directory.name)/'installed'
+        # Windows CI's TEMP may contain an 8.3 alias (e.g. RUNNER~1). Match
+        # the canonical paths returned by the updater, not the alias spelling.
+        directory = Path(self.directory.name).resolve()
+        self.installed = directory/'installed'
         self.installed.mkdir()
-        self.root = Path(tempfile.mkdtemp(prefix=updater.STAGE_PREFIX, dir=self.directory.name))
+        self.root = Path(tempfile.mkdtemp(prefix=updater.STAGE_PREFIX, dir=directory)).resolve()
         self.target = (self.installed/'CSE 空间助手.exe').resolve()
         self.old = pe_bytes(b'old version')
         self.new = pe_bytes(b'new version')
